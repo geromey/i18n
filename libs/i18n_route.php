@@ -26,6 +26,13 @@ class I18nRoute extends CakeRoute {
 	private static $__defaultsMapped = false;
 
 /**
+ * init the langugage only once from urls.
+ *
+ * @var boolean
+ */
+	private static $__initLang = false;
+
+/**
  * Class name - Workaround to be able to extend this class without breaking existing features
  *
  * @var string
@@ -46,11 +53,12 @@ class I18nRoute extends CakeRoute {
 			$template = '/:lang' . $template;
 		}
 		if (strpos($template, ':lang')) {
-			if (defined('DEFAULT_LANGUAGE') && empty($options['disableDefaultConnect'])) {
+			$lang = $this->__getCustomLang();
+			if (!is_null($lang) && empty($options['disableDefaultConnect'])) {
 				// Connects the default language without the :lang param
 				Router::connect(
 					str_replace('/:lang', '', $template),
-					array_merge($defaults, array('lang' => DEFAULT_LANGUAGE)),
+					array_merge($defaults, array('lang' => $lang)),
 					array_merge($options, array('routeClass' => $this->name, 'disableAutoNamedLang' => true)));
 			}
 			$options = array_merge((array)$options, array(
@@ -97,8 +105,9 @@ class I18nRoute extends CakeRoute {
 	public function parse($url) {
 		$params = parent::parse($url);
 
-		if ($params !== false && array_key_exists('lang', $params)) {
+		if (!self::$__initLang && $params !== false && array_key_exists('lang', $params)) {
 			Configure::write('Config.language', $params['lang']);
+			self::$__initLang = true;
 		}
 
 		return $params;
@@ -193,6 +202,42 @@ class I18nRoute extends CakeRoute {
 		self::$__defaultsMapped = false;
 		Router::reload();
 	}
+  /**
+   *
+   * get the custom language specified with Configure::read('I18nRoute.customLang');
+   * or DEFAULT_LANGUAGE if not specified.
+   * The value 'browser' for I18nRoute.customLang will send back the browser lang
+   * @return string
+   */
+  private function __getCustomLang() {
+    $customLang = Configure::read('I18nRoute.customLang');
+    // No customLang specified then return DEFAULT_LANGUAGE IF EXISTS
+	if (is_null($customLang))
+	{
+	  if (defined('DEFAULT_LANGUAGE'))
+	    return DEFAULT_LANGUAGE;
+      return null;
+	}
+    // if 'browser' specified, then we look for the browser lang
+	if ('browser' != $customLang)
+	  return $customLang;
+
+    App::import('Core', 'L10n');
+    $L10n = new L10n();
+    $L10n->get(); // get will init the $L10n->languagePath
+    $allowedLangs = Configure::read('Config.languages');
+    if (defined('DEFAULT_LANGUAGE') && !in_array(DEFAULT_LANGUAGE, $allowedLangs))
+      $allowedLangs[] = DEFAULT_LANGUAGE;
+    foreach ($L10n->languagePath as $lang)
+    {
+      $customLang = $L10n->map($lang);
+      if (in_array($customLang, $allowedLangs))
+        break;
+    }
+	// replace the customLang so we don't have to do that for the next request
+	Configure::write('I18nRoute.customLang', $customLang);
+	return $customLang;
+  }
 }
 
 /**
